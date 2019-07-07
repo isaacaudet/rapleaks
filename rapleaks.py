@@ -2,6 +2,9 @@ import glob
 import os
 import time
 import sys
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, APIC
+import magic
 from tkinter import Tk
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -117,28 +120,83 @@ def drive_up():
     file_drive.SetContentFile(new)
     file_drive.Upload()
 
-
 def link_finder():
     driver.get(Tk().clipboard_get())
+    title = driver.title
+    artist = title.split("]")[1].split(" -")[0]
+    name = title.split("]")[1].split(" - ")[1]. split(" :")[0]
+    album_art(artist)
+
     while True:
         try:
             pico = wait.until(EC.element_to_be_clickable(
                 (By.PARTIAL_LINK_TEXT, "picosong")))
             link = pico.get_attribute("href")
             pico_dl(link)
+          
+            metadata(file_name() , artist, name)
+            head, tail = os.path.split(file_name())
+            song_name = head + "\\" + name + ".mp3"
+            os.rename(file_name(), song_name)
+            drive_up()
             return False
 
         except TimeoutException:
             print("No PicoSong link found.")
+
         try:
             sound = wait.until(EC.element_to_be_clickable(
                 (By.PARTIAL_LINK_TEXT, "soundcloud")))
             link = sound.get_attribute("href")
             sound_dl(link)
+            metadata(file_name() , artist, name)
+            head, tail = os.path.split(file_name())
+            song_name = head + "\\" + name + ".mp3"
+            os.rename(file_name(), song_name)
+            drive_up()
             return False
+
         except TimeoutException:
             print("No SoundCloud link found.")
         return False
+
+def title():
+    title = driver.title
+    return title
+
+def artist(title):
+    artist = title.split("]")[1].split(" -")[0]
+    return artist
+
+def song_name(title):
+    name = title.split("]")[1].split(" -")[1]
+    return name
+
+def album_art(artist):
+    os.chdir(r"C:\Users\isaac\Desktop\SounDL")
+    os.system("sacad " + '"' + artist + '"' + ' "' + "" + '" ' + '"' + "600" '" ' + '"' + artist + ".jpg" + '"')
+
+def metadata(file_name, artist, title):
+    audio = EasyID3(file_name)
+    audio['artist'] = artist
+    audio['title'] = title
+    audio.save()
+    
+    audio = ID3(file_name)
+    with open(artist+".jpg", 'rb') as albumart:
+        audio['APIC'] = APIC(
+                          encoding=3,
+                          mime='image/jpeg',
+                          type=3, desc=u'Cover',
+                          data=albumart.read()
+                        )            
+    audio.save()
+
+
+def file_name():
+    list_of_files = glob.glob('C:\\Users\\isaac\\Documents\\SoundDL\\*')
+    new = max(list_of_files, key=os.path.getctime)
+    return new
 
 if __name__ == "__main__":
     link_finder()
