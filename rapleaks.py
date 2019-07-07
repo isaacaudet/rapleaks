@@ -5,6 +5,8 @@ import sys
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, APIC
 import magic
+import logging
+from yaspin import yaspin
 from tkinter import Tk
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -14,6 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import InvalidArgumentException
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 from oauth2client import file, client, tools
@@ -23,10 +26,11 @@ from oauth2client import file, client, tools
 # Constants
 location = r"C:\Users\isaac\Documents\SoundDL"
 fid = "1-9HbOEJhzVIRQ4wyglgEVkB9-xqHft5C"
-
+spinner = yaspin()
 
 # Webdriver
 options = Options()
+options.add_experimental_option('excludeSwitches', ['enable-logging'])
 prefs = {'download.default_directory': "C:\\Users\\isaac\\Documents\\SoundDL"}
 options.add_experimental_option('prefs', prefs)
 driver = webdriver.Chrome(options=options)
@@ -85,6 +89,7 @@ def pico_dl(link):
         dl = wait.until(EC.element_to_be_clickable(
             (By.XPATH, "//div[@id='content']/div[2]/div/div/h3/a/strong")))
         dl.click()
+        driver.minimize_window()
     except NoSuchElementException:
         return
     download_wait(location)
@@ -120,61 +125,11 @@ def drive_up():
     file_drive.SetContentFile(new)
     file_drive.Upload()
 
-def link_finder():
-    driver.get(Tk().clipboard_get())
-    title = driver.title
-    artist = title.split("]")[1].split(" -")[0]
-    name = title.split("]")[1].split(" - ")[1]. split(" :")[0]
-    album_art(artist)
-
-    while True:
-        try:
-            pico = wait.until(EC.element_to_be_clickable(
-                (By.PARTIAL_LINK_TEXT, "picosong")))
-            link = pico.get_attribute("href")
-            pico_dl(link)
-          
-            metadata(file_name() , artist, name)
-            head, tail = os.path.split(file_name())
-            song_name = head + "\\" + name + ".mp3"
-            os.rename(file_name(), song_name)
-            drive_up()
-            return False
-
-        except TimeoutException:
-            print("No PicoSong link found.")
-
-        try:
-            sound = wait.until(EC.element_to_be_clickable(
-                (By.PARTIAL_LINK_TEXT, "soundcloud")))
-            link = sound.get_attribute("href")
-            sound_dl(link)
-            metadata(file_name() , artist, name)
-            head, tail = os.path.split(file_name())
-            song_name = head + "\\" + name + ".mp3"
-            os.rename(file_name(), song_name)
-            drive_up()
-            return False
-
-        except TimeoutException:
-            print("No SoundCloud link found.")
-        return False
-
-def title():
-    title = driver.title
-    return title
-
-def artist(title):
-    artist = title.split("]")[1].split(" -")[0]
-    return artist
-
-def song_name(title):
-    name = title.split("]")[1].split(" -")[1]
-    return name
 
 def album_art(artist):
     os.chdir(r"C:\Users\isaac\Desktop\SounDL")
     os.system("sacad " + '"' + artist + '"' + ' "' + "" + '" ' + '"' + "600" '" ' + '"' + artist + ".jpg" + '"')
+
 
 def metadata(file_name, artist, title):
     audio = EasyID3(file_name)
@@ -192,11 +147,84 @@ def metadata(file_name, artist, title):
                         )            
     audio.save()
 
-
 def file_name():
     list_of_files = glob.glob('C:\\Users\\isaac\\Documents\\SoundDL\\*')
     new = max(list_of_files, key=os.path.getctime)
     return new
+
+def blockPrint():
+    sys.stdout = open(os.devnull, 'w')
+
+# Restore
+def enablePrint():
+    sys.stdout = sys.__stdout__
+
+
+def link_finder():
+    reddit = Tk().clipboard_get()
+    with yaspin(text="Loading reddit", color="yellow") as spinner:
+        try:
+
+            driver.get(reddit)
+            spinner.ok("✅ ")
+        except InvalidArgumentException:
+            spinner.fail("❌ ")
+            driver.quit()
+            return
+
+    title = driver.title
+    artist = title.split("]")[1].split(" -")[0]
+    name = title.split("]")[1].split(" - ")[1]. split(" :")[0]
+    with yaspin(text="Finding album art", color="yellow") as spinner:
+        try:
+            album_art(artist)
+            spinner.ok("✅ ")
+        except:
+            spinner.fail("❌ ")
+
+    while True:
+        with yaspin(text="Downloading song", color="yellow") as spinner:
+            try:
+                pico = wait.until(EC.element_to_be_clickable(
+                    (By.PARTIAL_LINK_TEXT, "picosong")))
+                link = pico.get_attribute("href")
+                pico_dl(link)
+                spinner.ok("✅ ")
+
+                metadata(file_name() , artist, name)
+                head, tail = os.path.split(file_name())
+                song_name = head + "\\" + name + ".mp3"
+                os.rename(file_name(), song_name)
+                with yaspin(text="Uploading to Google Drive", color="yellow") as spinner:
+                    drive_up()
+                    spinner.ok("✅ ")
+                return False
+
+            except TimeoutException:
+                spinner.fail("❌ ")
+
+            try:
+                driver.get(reddit)
+                sound = wait.until(EC.element_to_be_clickable(
+                    (By.PARTIAL_LINK_TEXT, "soundcloud")))
+                link = sound.get_attribute("href")
+                sound_dl(link)
+                spinner.ok("✅ ")
+
+                metadata(file_name() , artist, name)
+                head, tail = os.path.split(file_name())
+                song_name = head + "\\" + name + ".mp3"
+                os.rename(file_name(), song_name)
+                with yaspin(text="Uploading to Google Drive", color="yellow") as spinner:
+                    drive_up()
+                    spinner.ok("✅ ")
+
+                return False
+
+            except TimeoutException:
+                spinner.fail("❌ ")
+            return False
+
 
 if __name__ == "__main__":
     link_finder()
