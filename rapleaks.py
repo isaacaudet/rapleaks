@@ -35,13 +35,13 @@ prefs = {'download.default_directory': "C:\\Users\\isaac\\Documents\\SoundDL"}
 options.add_experimental_option('prefs', prefs)
 driver = webdriver.Chrome(options=options)
 driver.minimize_window()
-wait = WebDriverWait(driver, 10)
+wait = WebDriverWait(driver, 4)
 
 
 def download_wait(path_to_downloads):
     seconds = 0
     dl_wait = True
-    while dl_wait and seconds < 40:
+    while dl_wait and seconds < 20:
         time.sleep(1)
         dl_wait = False
         for fname in os.listdir(path_to_downloads):
@@ -61,37 +61,54 @@ def sound_dl(link):
     nxt = wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//div[@id='conversionForm']/form/button")))  # convert button
     nxt.click()
+    try:
+        wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[@id='result']")))
 
-    wait.until(EC.visibility_of_element_located(
-        (By.XPATH, "//div[@id='result']")))
+        result = driver.find_elements_by_xpath(
+            "//div[@class='searchboxholder']//a")  # dl button
 
-    result = driver.find_elements_by_xpath(
-        "//div[@class='searchboxholder']//a")  # dl button
-
-    if(len(result) > 0):
-        result[0].click()
-        download_wait(location)
-        driver.quit()
-        return
-    else:
-        print("Invalid link")
-        driver.quit()
-        return
+        if(len(result) > 0):
+            result[0].click()
+            download_wait(location)
+            driver.quit()
+            return
+        else:
+            raise TimeoutException
+    except TimeoutException:
+        raise
 
 
 def pico_dl(link):
     driver.get(link)
+    cont = True
     try:
         box = wait.until(EC.element_to_be_clickable(
             (By.XPATH, "//ul[@id='audio-actions']/li/a")))
-        box.click()
+    except TimeoutException:
+        cont = False
+        raise
 
+    if cont == True:
+        box.click()
         dl = wait.until(EC.element_to_be_clickable(
             (By.XPATH, "//div[@id='content']/div[2]/div/div/h3/a/strong")))
         dl.click()
         driver.minimize_window()
-    except NoSuchElementException:
-        return
+        download_wait(location)
+        driver.quit()
+
+    
+
+def dbr_dl(link):
+    driver.get(link)
+    try:
+        driver.implicitly_wait(5)
+        box = wait.until(EC.element_to_be_clickable(
+            (By.LINK_TEXT, "Download")))
+        box.click()
+    except TimeoutException:
+        raise
     download_wait(location)
     driver.quit()
     return
@@ -152,25 +169,30 @@ def file_name():
     new = max(list_of_files, key=os.path.getctime)
     return new
 
-def blockPrint():
-    sys.stdout = open(os.devnull, 'w')
+def meta_write(name, artist):
+    with yaspin(text="Applying metadata", color="yellow") as spinner:
+        metadata(file_name() , artist, name)
+        head, tail = os.path.split(file_name())
+        song_name = head + "\\" + name + ".mp3"
+        os.rename(file_name(), song_name)
+        spinner.ok("✅ ")
 
-# Restore
-def enablePrint():
-    sys.stdout = sys.__stdout__
-
+    with yaspin(text="Uploading to Google Drive", color="yellow") as spinner:   
+        drive_up()
+        spinner.ok("✅ ")
+    
 
 def link_finder():
+    method = "pico"
     reddit = Tk().clipboard_get()
     with yaspin(text="Loading reddit", color="yellow") as spinner:
         try:
-
             driver.get(reddit)
-            spinner.ok("✅ ")
         except InvalidArgumentException:
             spinner.fail("❌ ")
             driver.quit()
             return
+        spinner.ok("✅ ")
 
     title = driver.title
     artist = title.split("]")[1].split(" -")[0]
@@ -182,27 +204,34 @@ def link_finder():
         except:
             spinner.fail("❌ ")
 
-    while True:
-        with yaspin(text="Downloading song", color="yellow") as spinner:
+    if method == "pico":
+        with yaspin(text="Downloading with Picosong", color="yellow") as spinner:
             try:
                 pico = wait.until(EC.element_to_be_clickable(
                     (By.PARTIAL_LINK_TEXT, "picosong")))
                 link = pico.get_attribute("href")
                 pico_dl(link)
                 spinner.ok("✅ ")
-
-                metadata(file_name() , artist, name)
-                head, tail = os.path.split(file_name())
-                song_name = head + "\\" + name + ".mp3"
-                os.rename(file_name(), song_name)
-                with yaspin(text="Uploading to Google Drive", color="yellow") as spinner:
-                    drive_up()
-                    spinner.ok("✅ ")
-                return False
+                meta_write(name, artist)
+                return
 
             except TimeoutException:
+                spinner.write("> Find by link text failed")
+                pass
+            try:
+                pico = driver.find_element_by_xpath("//*[contains(text(), 'Picosong')]")
+                link = pico.get_attribute("href")
+                pico_dl(link)
+                spinner.ok("✅ ")
+                meta_write(name, artist)
+                return 
+            except TimeoutException:
+                method = "sound"
                 spinner.fail("❌ ")
+                 
 
+    if method == "sound":
+        with yaspin(text="Downloading with Soundcloud", color="yellow") as spinner:
             try:
                 driver.get(reddit)
                 sound = wait.until(EC.element_to_be_clickable(
@@ -210,20 +239,48 @@ def link_finder():
                 link = sound.get_attribute("href")
                 sound_dl(link)
                 spinner.ok("✅ ")
-
-                metadata(file_name() , artist, name)
-                head, tail = os.path.split(file_name())
-                song_name = head + "\\" + name + ".mp3"
-                os.rename(file_name(), song_name)
-                with yaspin(text="Uploading to Google Drive", color="yellow") as spinner:
-                    drive_up()
-                    spinner.ok("✅ ")
-
-                return False
-
+                meta_write(name, artist)
+                return
+            except TimeoutException:
+                spinner.write("> Find by link text failed")
+            try:
+                driver.get(reddit)
+                sound = driver.find_element_by_xpath("//*[contains(text(), 'SoundCloud')]")
+                link = sound.get_attribute("href")
+                sound_dl(link)
+                spinner.ok("✅ ")
+                meta_write(name, artist)
+                return
             except TimeoutException:
                 spinner.fail("❌ ")
-            return False
+                method = "dbree"
+ 
+
+    if method == "dbree":
+        with yaspin(text="Downloading with Dbree", color="yellow") as spinner:
+            try:
+                driver.get(reddit)
+                sound = wait.until(EC.element_to_be_clickable(
+                    (By.PARTIAL_LINK_TEXT, "dbree")))
+                link = sound.get_attribute("href")
+                dbr_dl(link)
+                spinner.ok("✅ ")
+                meta_write(name, artist)
+                return
+            except TimeoutException:
+                spinner.write("> Find by link text failed")
+            try:
+                driver.get(reddit)
+                dbr = driver.find_element_by_xpath("//*[contains(text(), 'Dbree')]")
+                link = dbr.get_attribute("href")
+                dbr_dl(link)
+                spinner.ok("✅ ")
+                meta_write(name, artist)
+            except TimeoutException:
+                spinner.fail("❌ ")
+                spinner.write("> Failed to find any links")
+                driver.quit()
+
 
 
 if __name__ == "__main__":
