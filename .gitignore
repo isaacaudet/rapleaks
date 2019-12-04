@@ -2,3 +2,6 @@
 client_secrets.json
 dL.py
 mycreds.txt
+eyed3.py
+chromedriver.exe
+__pycache__
